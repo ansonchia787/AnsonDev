@@ -1,2 +1,0 @@
-# AnsonDevScript
-Script
