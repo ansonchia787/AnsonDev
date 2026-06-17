@@ -1,13 +1,27 @@
 --!strict
 
-local HttpGet = game.HttpGet
-local GameId: number = game.GameId
+local function HttpGet(url: string): string
+    return game:HttpGet(url)
+end
 
-local Games: {[number]: string} = loadstring(
-  HttpGet(game, "https://raw.githubusercontent.com/ansonchia787/AnsonDev/main/GameList.lua")
-)() :: any
+local GameId = game.PlaceId
+local Games = loadstring(
+    HttpGet("https://raw.githubusercontent.com/ansonchia787/AnsonDev/main/GameList.lua")
+)()
 
-local URL: string? = Games[GameId]
-if not URL then return end
+print("Current PlaceId:", GameId)
 
-loadstring(HttpGet(game, URL))()
+local URL = Games[GameId]
+
+if not URL then
+    warn("No script for this game")
+    return
+end
+
+local success, err = pcall(function()
+    loadstring(HttpGet(URL))()
+end)
+
+if not success then
+    warn("Load Error:", err)
+end
