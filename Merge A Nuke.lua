@@ -1,620 +1,674 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+--[[
+    AnsonDev - Merge a Nuke
+    Version : 1.0.0
+    Author  : AnsonDev
+    UI      : WindUI
+]]
 
-local Window = Rayfield:CreateWindow({
-    Name = "Merge a Nuke",
-    LoadingTitle = "AnsonDev Hub",
-    LoadingSubtitle = "by AnsonDev",
-    ConfigurationSaving = {
-        Enabled = false,
-        FolderName = "AnsonDevConfigs",
-        FileName = "AnsonDevHub"
-    },
-    KeySystem = false,
-    Theme = "Default",
-    ToggleUIKeybind = Enum.KeyCode.RightAlt
-})
+local WindUI = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/Footagesus/WindUI/main/dist/main.lua"
+))()
 
-
-
-
-local Players = game:GetService("Players")
-
-local Main = Window:CreateTab("Main", 4483362458)
-local UniversalTab = Window:CreateTab("Universal", 4483362458)
-local CreditsTab = Window:CreateTab("Credits", 4483362458)
-local LocalPlayer = game:GetService("Players").LocalPlayer
-local PlayerId = tonumber(LocalPlayer.UserId)
-local RunService = game:GetService("RunService")
-local Workspace = game:GetService("Workspace")
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace        = game:GetService("Workspace")
 
+local LocalPlayer = Players.LocalPlayer
+local PlayerId    = tonumber(LocalPlayer.UserId)
 
-local function GetPlayerBase()
-    local BasesFolder = game.Workspace:FindFirstChild("Bases")
-    if BasesFolder then
-        for _, folder in ipairs(BasesFolder:GetChildren()) do
-            local attributeValue = folder:GetAttribute("OwnerUserId")
-            if attributeValue and tonumber(attributeValue) == PlayerId then
-                return folder
-            end
-        end
+-- ═══════════════════════════════════════════════════
+--  Shared State
+-- ═══════════════════════════════════════════════════
+local S = {
+    AutoMerge       = false,
+    AutoPickUp      = false,
+    AutoLock        = false,
+    AutoUpgrade     = false,
+    SelectedUpgrades = {},
+
+    WalkEnabled     = false,
+    WalkVal         = 16,
+    JumpEnabled     = false,
+    JumpVal         = 50,
+    InfJump         = false,
+    InfJumpConn     = nil,
+
+    FlyEnabled      = false,
+    FlySpeed        = 50,
+    FlyConn         = nil,
+
+    NoclipEnabled   = false,
+    NoclipConn      = nil,
+
+    EspEnabled      = false,
+    EspConns        = {},
+    EspFolder       = Workspace:FindFirstChild("AnsonDevESP") or Instance.new("Folder", Workspace),
+}
+S.EspFolder.Name = "AnsonDevESP"
+
+-- ═══════════════════════════════════════════════════
+--  Helpers
+-- ═══════════════════════════════════════════════════
+local function getChar()  return LocalPlayer.Character end
+local function getHRP()   local c = getChar(); return c and c:FindFirstChild("HumanoidRootPart") end
+local function getHum()   local c = getChar(); return c and c:FindFirstChildOfClass("Humanoid") end
+
+local function getPlayerBase()
+    local bases = Workspace:FindFirstChild("Bases")
+    if not bases then return nil end
+    for _, folder in ipairs(bases:GetChildren()) do
+        local attr = folder:GetAttribute("OwnerUserId")
+        if attr and tonumber(attr) == PlayerId then return folder end
     end
-    return nil
 end
 
-local function TeleportTo(object)
-    if not object or not LocalPlayer.Character then return end
-    local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local position = nil
-    if object:IsA("Model") then
-        position = object:GetPivot().Position
-    elseif object:IsA("BasePart") then
-        position = object.Position
-    end
-    if root and position then
-        root.CFrame = CFrame.new(position + Vector3.new(0, 2, 0))
-    end
+local function teleportTo(obj)
+    if not obj or not getChar() then return end
+    local root = getHRP()
+    local pos
+    if obj:IsA("Model")    then pos = obj:GetPivot().Position
+    elseif obj:IsA("BasePart") then pos = obj.Position end
+    if root and pos then root.CFrame = CFrame.new(pos + Vector3.new(0,2,0)) end
 end
 
--- ============================================================
---  MAIN TAB
--- ============================================================
+local function notify(title, content)
+    WindUI:Notify({ Title = title, Content = content or "", Duration = 3 })
+end
 
-Main:CreateToggle({
-    Name = "Auto Merge",
-    CurrentValue = false,
-    Flag = "Toggle1", 
-    Callback = function(Value)
-        _G.AutoMerge = Value
-        while _G.AutoMerge do
-            local myBase = GetPlayerBase()
-            if myBase and myBase:FindFirstChild("Nukes") then
-                local nukeCounts = {}
-                for _, nuke in ipairs(myBase.Nukes:GetChildren()) do
-                    if nuke.Name == "Nuke" and nuke:FindFirstChild("OverheadNuke") and nuke.OverheadNuke:FindFirstChild("TextLabel") then
-                        local nukeType = nuke.OverheadNuke.TextLabel.Text
-                        if nukeType and nukeType ~= "" then
-                            if not nukeCounts[nukeType] then
-                                nukeCounts[nukeType] = {}
-                            end
-                            table.insert(nukeCounts[nukeType], nuke)
-                        end
-                    end
-                end
-                for _, matches in pairs(nukeCounts) do
-                    if #matches >= 2 then
-                        local PickUpEvent = game:GetService("ReplicatedStorage").NukeRemotes.PickUp
-                        local MergeEvent = game:GetService("ReplicatedStorage").NukeRemotes.MergeRequest
-                        local firstNuke = matches[1]
-                        local secondNuke = matches[2]
-                        PickUpEvent:FireServer(firstNuke)
-                        task.wait()
-                        MergeEvent:FireServer(secondNuke)
-                        break
-                    end
-                end
-            end
-            task.wait()
-        end
-    end
-})
-
-Main:CreateToggle({
-    Name = "Auto Pick Up All",
-    CurrentValue = false,
-    Flag = "Toggle2",
-    Callback = function(Value)
-        _G.AutoPickUp = Value
-        while _G.AutoPickUp do
-            local myBase = GetPlayerBase()
-            if myBase and myBase:FindFirstChild("Nukes") then
-                local nukeCounts = {}
-                for _, nuke in ipairs(myBase.Nukes:GetChildren()) do
-                    if nuke.Name == "Nuke" and nuke:FindFirstChild("OverheadNuke") and nuke.OverheadNuke:FindFirstChild("TextLabel") then
-                        local nukeType = nuke.OverheadNuke.TextLabel.Text
-                        if nukeType and nukeType ~= "" then
-                            if not nukeCounts[nukeType] then
-                                nukeCounts[nukeType] = {}
-                            end
-                            table.insert(nukeCounts[nukeType], nuke)
-                        end
-                    end
-                end
-                
-                for _, nuke in ipairs(myBase.Nukes:GetChildren()) do
-                    if not _G.AutoPickUp then break end
-                    if nuke.Name == "Nuke" and nuke:FindFirstChild("OverheadNuke") and nuke.OverheadNuke:FindFirstChild("TextLabel") then
-                        local nukeType = nuke.OverheadNuke.TextLabel.Text
-                        local matchCount = nukeCounts[nukeType] and #nukeCounts[nukeType] or 0
-                        
-                        local PickUpEvent = game:GetService("ReplicatedStorage").NukeRemotes.PickUp
-                        local rootPart = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                        local originalCFrame = rootPart and rootPart.CFrame
-                        
-                        TeleportTo(nuke)
-                        task.wait()
-                        PickUpEvent:FireServer(nuke)
-                        task.wait()
-                        
-                        if matchCount < 2 then
-                            local DropEvent = game:GetService("ReplicatedStorage").NukeRemotes.Drop
-                            if rootPart then
-                                DropEvent:FireServer(rootPart.CFrame)
-                            else
-                                DropEvent:FireServer(CFrame.new(290.03, 17.20, 249.74))
-                            end
-                            task.wait()
-                        end
-                        
-                        if rootPart and originalCFrame then
-                            rootPart.CFrame = originalCFrame
-                        end
-                    end
-                end
-            end
-            task.wait()
-        end
-    end
-})
-
-Main:CreateToggle({
-   Name = "Auto Lock Base",
-   CurrentValue = false,
-   Flag = "Toggle3", 
-   Callback = function(Value)
-    lock = Value
-    while lock do task.wait()
-        local Event = game:GetService("ReplicatedStorage").NukeRemotes.RequestLockBase
-            Event:FireServer()
-        end
-   end,
-})
-
-Main:CreateDropdown({
-    Name = "Select Upgrades",
-    Options = {"MAX", "TIER", "LOCKBASE"},
-    CurrentOption = {},
-    MultipleOptions = true,
-    Flag = "Dropdown1",
-    Callback = function(Options)
-        SelectedUpgrades = Options
-    end,
-})
-
-Main:CreateToggle({
-    Name = "Auto Upgrade",
-    CurrentValue = false,
-    Flag = "Toggle4", 
-    Callback = function(Value)
-        _G.AutoUpgrade = Value
-        while _G.AutoUpgrade do
-            local Event = game:GetService("ReplicatedStorage").NukeRemotes.PurchaseUpgrade
-            for _, upgradeType in ipairs(SelectedUpgrades) do
-                if not _G.AutoUpgrade then break end
-                Event:FireServer(upgradeType)
-            end
-            task.wait()
-        end
-    end,
-})
-
-
--- ============================================================
---  SHARED STATE
--- ============================================================
-
-shared.InfJumpEnabled    = false
-shared.FlyEnabled        = false
-shared.EspEnabled        = false
-shared.NoclipEnabled     = false
-shared.FlySpeed          = 50
-
-shared.WalkSpeedEnabled  = false
-shared.JumpPowerEnabled  = false
-shared.TargetWalkSpeed   = 16
-shared.TargetJumpPower   = 50
-
-shared.FlyConnection     = nil
-shared.NoclipConnection  = nil
-shared.EspConnections    = {}
-shared.EspFolder         = Workspace:FindFirstChild("AnsonDevESP") or Instance.new("Folder", Workspace)
-shared.EspFolder.Name    = "AnsonDevESP"
-
--- ============================================================
---  UNIVERSAL TAB — MOVEMENT
--- ============================================================
-
-UniversalTab:CreateSection("Movement Modifications")
-
-UniversalTab:CreateSlider({
-    Name = "WalkSpeed",
-    Range = {16, 500},
-    Increment = 1,
-    Suffix = "Speed",
-    CurrentValue = 16,
-    Flag = "WalkSpeedSlider",
-    Callback = function(Value)
-        shared.TargetWalkSpeed = Value
-        if shared.WalkSpeedEnabled then
-            local Char = LocalPlayer.Character
-            local Hum = Char and Char:FindFirstChildOfClass("Humanoid")
-            if Hum then Hum.WalkSpeed = Value end
-        end
-    end,
-})
-
-UniversalTab:CreateToggle({
-    Name = "Enable WalkSpeed",
-    CurrentValue = false,
-    Flag = "WalkSpeedToggle",
-    Callback = function(Value)
-        shared.WalkSpeedEnabled = Value
-        if not Value then
-            local Char = LocalPlayer.Character
-            local Hum = Char and Char:FindFirstChildOfClass("Humanoid")
-            if Hum then Hum.WalkSpeed = 16 end
-        end
-    end,
-})
-
-UniversalTab:CreateSlider({
-    Name = "JumpPower",
-    Range = {50, 1000},
-    Increment = 1,
-    Suffix = "Power",
-    CurrentValue = 50,
-    Flag = "JumpPowerSlider",
-    Callback = function(Value)
-        shared.TargetJumpPower = Value
-        if shared.JumpPowerEnabled then
-            local Char = LocalPlayer.Character
-            local Hum = Char and Char:FindFirstChildOfClass("Humanoid")
-            if Hum then
-                Hum.UseJumpPower = true
-                Hum.JumpPower = Value
-            end
-        end
-    end,
-})
-
-UniversalTab:CreateToggle({
-    Name = "Enable JumpPower",
-    CurrentValue = false,
-    Flag = "JumpPowerToggle",
-    Callback = function(Value)
-        shared.JumpPowerEnabled = Value
-        if not Value then
-            local Char = LocalPlayer.Character
-            local Hum = Char and Char:FindFirstChildOfClass("Humanoid")
-            if Hum then 
-                Hum.JumpPower = 50 
-            end
-        end
-    end,
-})
-
--- Persistent RenderStepped enforcement for WalkSpeed / JumpPower
+-- ═══════════════════════════════════════════════════
+--  RenderStepped enforcement (WalkSpeed / JumpPower)
+-- ═══════════════════════════════════════════════════
 RunService.RenderStepped:Connect(function()
-    local Char = LocalPlayer.Character
-    local Hum = Char and Char:FindFirstChildOfClass("Humanoid")
-    if not Hum then return end
-    
-    if shared.WalkSpeedEnabled then
-        if Hum.WalkSpeed ~= shared.TargetWalkSpeed then
-            Hum.WalkSpeed = shared.TargetWalkSpeed
-        end
-    end
-    
-    if shared.JumpPowerEnabled then
-        if not Hum.UseJumpPower then
-            Hum.UseJumpPower = true
-        end
-        if Hum.JumpPower ~= shared.TargetJumpPower then
-            Hum.JumpPower = shared.TargetJumpPower
-        end
+    local hum = getHum(); if not hum then return end
+    if S.WalkEnabled and hum.WalkSpeed ~= S.WalkVal then hum.WalkSpeed = S.WalkVal end
+    if S.JumpEnabled then
+        if not hum.UseJumpPower then hum.UseJumpPower = true end
+        if hum.JumpPower ~= S.JumpVal then hum.JumpPower = S.JumpVal end
     end
 end)
-
-UniversalTab:CreateToggle({
-    Name = "Infinite Jump",
-    CurrentValue = false,
-    Flag = "InfJumpToggle",
-    Callback = function(Value)
-        shared.InfJumpEnabled = Value
-    end,
-})
 
 UserInputService.JumpRequest:Connect(function()
-    if shared.InfJumpEnabled then
-        local Char = LocalPlayer.Character
-        local Hum = Char and Char:FindFirstChildOfClass("Humanoid")
-        if Hum then Hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    if S.InfJump then
+        local hum = getHum()
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
     end
 end)
 
--- ============================================================
---  UNIVERSAL TAB — TELEPORT
--- ============================================================
+-- ═══════════════════════════════════════════════════
+--  Fly
+-- ═══════════════════════════════════════════════════
+local function stopFly()
+    S.FlyEnabled = false
+    if S.FlyConn then S.FlyConn:Disconnect(); S.FlyConn = nil end
+    local root = getHRP(); local hum = getHum()
+    if root then
+        local bv = root:FindFirstChild("AnsonFlyForce"); if bv then bv:Destroy() end
+        local bg = root:FindFirstChild("AnsonFlyGyro");  if bg then bg:Destroy() end
+    end
+    if hum then hum.PlatformStand = false end
+end
 
-UniversalTab:CreateSection("Teleport")
+local function startFly()
+    S.FlyEnabled = true
+    local cam   = Workspace.CurrentCamera
+    local root  = getHRP(); local hum = getHum()
+    if not root or not hum then return end
 
-UniversalTab:CreateButton({
-    Name = "Teleport to Spawn",
-    Callback = function()
-        local Char = LocalPlayer.Character
-        local Root = Char and Char:FindFirstChild("HumanoidRootPart")
-        if Root then
-            local Spawn = Workspace:FindFirstChildOfClass("SpawnLocation")
-            if Spawn then
-                Root.CFrame = CFrame.new(Spawn.Position + Vector3.new(0, 5, 0))
-            end
+    local bv = root:FindFirstChild("AnsonFlyForce") or Instance.new("BodyVelocity")
+    bv.Name = "AnsonFlyForce"; bv.MaxForce = Vector3.new(math.huge,math.huge,math.huge)
+    bv.Parent = root
+
+    local bg = root:FindFirstChild("AnsonFlyGyro") or Instance.new("BodyGyro")
+    bg.Name = "AnsonFlyGyro"; bg.MaxTorque = Vector3.new(math.huge,math.huge,math.huge)
+    bg.CFrame = root.CFrame; bg.Parent = root
+
+    hum.PlatformStand = true
+
+    S.FlyConn = RunService.RenderStepped:Connect(function()
+        if not S.FlyEnabled or not root.Parent then
+            stopFly(); return
         end
-    end,
-})
-
-UniversalTab:CreateButton({
-    Name = "Teleport to My Base",
-    Callback = function()
-        local myBase = GetPlayerBase()
-        if myBase then
-            TeleportTo(myBase)
-        else
-            Rayfield:Notify({
-                Title = "AnsonDev Hub",
-                Content = "Could not find your base!",
-                Duration = 3,
-                Image = 4483362458,
-            })
+        local dir = Vector3.zero
+        local cf  = cam.CFrame
+        if UserInputService:IsKeyDown(Enum.KeyCode.W)         then dir = dir + cf.LookVector  end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S)         then dir = dir - cf.LookVector  end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A)         then dir = dir - cf.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D)         then dir = dir + cf.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space)     then dir = dir + Vector3.yAxis  end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.yAxis  end
+        -- mobile
+        local hm = getHum()
+        if hm then
+            local md = hm.MoveDirection
+            if md.Magnitude > 0.1 then dir = dir + md end
         end
-    end,
-})
-
--- ============================================================
---  UNIVERSAL TAB — ADVANCED MOVEMENT
--- ============================================================
-
-UniversalTab:CreateSection("Advanced Movement")
-
-UniversalTab:CreateSlider({
-    Name = "Fly Speed",
-    Range = {10, 500},
-    Increment = 5,
-    Suffix = "Studs",
-    CurrentValue = 50,
-    Flag = "FlySpeedSlider",
-    Callback = function(Value)
-        shared.FlySpeed = Value
-    end,
-})
-
-shared.HandleFlight = function()
-    local Camera    = Workspace.CurrentCamera
-    local Character = LocalPlayer.Character
-    local Root      = Character and Character:FindFirstChild("HumanoidRootPart")
-    local Hum       = Character and Character:FindFirstChildOfClass("Humanoid")
-
-    if not Root or not Hum then return end
-
-    local BVel = Root:FindFirstChild("AnsonFlyForce") or Instance.new("BodyVelocity")
-    BVel.Name = "AnsonFlyForce"
-    BVel.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-    BVel.Parent = Root
-
-    local LGyro = Root:FindFirstChild("AnsonFlyGyro") or Instance.new("BodyGyro")
-    LGyro.Name = "AnsonFlyGyro"
-    LGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-    LGyro.CFrame = Root.CFrame
-    LGyro.Parent = Root
-
-    Hum.PlatformStand = true
-
-    shared.FlyConnection = RunService.RenderStepped:Connect(function()
-        if not shared.FlyEnabled or not Character or not Root.Parent then 
-            BVel:Destroy()
-            LGyro:Destroy()
-            if Hum then Hum.PlatformStand = false end
-            if shared.FlyConnection then shared.FlyConnection:Disconnect() end
-            return 
-        end
-
-        local Dir       = Vector3.new(0, 0, 0)
-        local CamCFrame = Camera.CFrame
-        
-        if UserInputService:IsKeyDown(Enum.KeyCode.W)          then Dir = Dir + CamCFrame.LookVector           end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S)          then Dir = Dir - CamCFrame.LookVector           end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A)          then Dir = Dir - CamCFrame.RightVector          end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D)          then Dir = Dir + CamCFrame.RightVector          end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space)      then Dir = Dir + Vector3.new(0,  1, 0)         end
-        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)  then Dir = Dir + Vector3.new(0, -1, 0)         end
-
-        BVel.Velocity  = Dir.Magnitude > 0 and Dir.Unit * shared.FlySpeed or Vector3.new(0, 0, 0)
-        LGyro.CFrame   = CamCFrame
+        bv.Velocity = dir.Magnitude > 0 and dir.Unit * S.FlySpeed or Vector3.zero
+        bg.CFrame   = cf
     end)
 end
 
-UniversalTab:CreateToggle({
-    Name = "Fly",
-    CurrentValue = false,
-    Flag = "FlyToggle",
-    Callback = function(Value)
-        shared.FlyEnabled = Value
-        if shared.FlyEnabled then
-            shared.HandleFlight()
-        else
-            if shared.FlyConnection then shared.FlyConnection:Disconnect() end
-            local Char = LocalPlayer.Character
-            local Root = Char and Char:FindFirstChild("HumanoidRootPart")
-            local Hum  = Char and Char:FindFirstChildOfClass("Humanoid")
-            if Root then
-                if Root:FindFirstChild("AnsonFlyForce") then Root.AnsonFlyForce:Destroy() end
-                if Root:FindFirstChild("AnsonFlyGyro")  then Root.AnsonFlyGyro:Destroy()  end
-            end
-            if Hum then Hum.PlatformStand = false end
-        end
-    end,
+-- ═══════════════════════════════════════════════════
+--  Noclip
+-- ═══════════════════════════════════════════════════
+local function stopNoclip()
+    S.NoclipEnabled = false
+    if S.NoclipConn then S.NoclipConn:Disconnect(); S.NoclipConn = nil end
+    local c = getChar()
+    if c then for _,p in ipairs(c:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide=true end end end
+end
+local function startNoclip()
+    S.NoclipEnabled = true
+    S.NoclipConn = RunService.Stepped:Connect(function()
+        if not S.NoclipEnabled then stopNoclip(); return end
+        local c = getChar(); if not c then return end
+        for _,p in ipairs(c:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide=false end end
+    end)
+end
+
+-- ═══════════════════════════════════════════════════
+--  ESP
+-- ═══════════════════════════════════════════════════
+local function cleanESP(plr)
+    if S.EspConns[plr] then
+        for _,c in ipairs(S.EspConns[plr]) do c:Disconnect() end
+        S.EspConns[plr] = nil
+    end
+    local cont = S.EspFolder:FindFirstChild(plr.Name)
+    if cont then cont:Destroy() end
+end
+
+local function buildESP(plr)
+    if plr == LocalPlayer then return end
+    cleanESP(plr)
+    S.EspConns[plr] = {}
+    local cont = Instance.new("Folder"); cont.Name = plr.Name; cont.Parent = S.EspFolder
+
+    local function makeTag(char)
+        if not char then return end
+        local root = char:WaitForChild("HumanoidRootPart", 5); if not root then return end
+        local bb = Instance.new("BillboardGui")
+        bb.AlwaysOnTop = true; bb.Size = UDim2.new(0,200,0,50)
+        bb.StudsOffset = Vector3.new(0,3,0); bb.Adornee = root; bb.Parent = cont
+        local lbl = Instance.new("TextLabel")
+        lbl.Size = UDim2.new(1,0,1,0); lbl.BackgroundTransparency = 1
+        lbl.Text = plr.Name; lbl.TextColor3 = Color3.fromRGB(255,60,60)
+        lbl.TextSize = 14; lbl.Font = Enum.Font.GothamBold
+        lbl.TextStrokeTransparency = 0; lbl.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+        lbl.Parent = bb
+    end
+
+    if plr.Character then makeTag(plr.Character) end
+    local conn = plr.CharacterAdded:Connect(function(c) task.wait(0.5); makeTag(c) end)
+    table.insert(S.EspConns[plr], conn)
+end
+
+-- ═══════════════════════════════════════════════════
+--  WindUI Window
+-- ═══════════════════════════════════════════════════
+local Window = WindUI:CreateWindow({
+    Title   = "AnsonDev  |  Merge a Nuke",
+    Folder  = "AnsonDev",
+    Icon    = "zap",
+    NewElements = true,
+    Topbar = { Height = 48, ButtonsType = "Mac" },
+    OpenButton = {
+        Title        = "AnsonDev",
+        CornerRadius = UDim.new(1,0),
+        StrokeThickness = 2,
+        Enabled      = true,
+        Draggable    = true,
+        OnlyMobile   = false,
+        Scale        = 0.55,
+        Color = ColorSequence.new(
+            Color3.fromHex("#F7514F"),
+            Color3.fromHex("#F59B1E")
+        ),
+    },
 })
 
-UniversalTab:CreateToggle({
-    Name = "Noclip",
-    CurrentValue = false,
-    Flag = "NoclipToggle",
-    Callback = function(Value)
-        shared.NoclipEnabled = Value
-        if shared.NoclipEnabled then
-            shared.NoclipConnection = RunService.Stepped:Connect(function()
-                if not shared.NoclipEnabled then 
-                    if shared.NoclipConnection then shared.NoclipConnection:Disconnect() end
-                    return 
-                end
-                if LocalPlayer.Character then
-                    for _, Part in ipairs(LocalPlayer.Character:GetDescendants()) do
-                        if Part:IsA("BasePart") and Part.CanCollide then
-                            Part.CanCollide = false
+Window:Tag({ Title = "v1.0.0",       Icon = "sparkles", Color = Color3.fromHex("#18181b"), Border = true })
+Window:Tag({ Title = "Merge a Nuke", Icon = "zap",      Color = Color3.fromHex("#1e1e2e"), Border = true })
+
+local CoreSection  = Window:Section({ Title = "Core"   })
+local ExtraSection = Window:Section({ Title = "Extra"  })
+
+-- ═══════════════════════════════════════════════════
+--  HOME TAB
+-- ═══════════════════════════════════════════════════
+do
+    local HomeTab = Window:Tab({ Title = "Home", Icon = "house" })
+
+    local Hero = HomeTab:Section({ Title = "AnsonDev  |  Merge a Nuke" })
+
+    Hero:Section({
+        Title = "Welcome back, " .. LocalPlayer.Name,
+        TextSize = 24, FontWeight = Enum.FontWeight.Bold,
+    })
+    Hero:Space()
+    Hero:Section({
+        Title = "Automate merging, upgrading and managing your nukes.\nAuto Merge  •  Auto Pick Up  •  Auto Upgrade  •  Player Tools",
+        TextSize = 15, TextTransparency = 0.35, FontWeight = Enum.FontWeight.Medium,
+    })
+
+    HomeTab:Space({ Columns = 3 })
+
+    local StatsGroup = HomeTab:Group({})
+    StatsGroup:Section({ Title = "Version",  TextSize = 12, TextTransparency = 0.5 })
+    StatsGroup:Section({ Title = "1.0.0",    TextSize = 18, FontWeight = Enum.FontWeight.Bold })
+    StatsGroup:Space()
+    StatsGroup:Section({ Title = "Author",   TextSize = 12, TextTransparency = 0.5 })
+    StatsGroup:Section({ Title = "AnsonDev", TextSize = 18, FontWeight = Enum.FontWeight.Bold })
+    StatsGroup:Space()
+    StatsGroup:Section({ Title = "Game",     TextSize = 12, TextTransparency = 0.5 })
+    StatsGroup:Section({ Title = "Merge a Nuke", TextSize = 18, FontWeight = Enum.FontWeight.Bold })
+
+    HomeTab:Space({ Columns = 3 })
+
+    HomeTab:Paragraph({
+        Title   = "Community  &  Support",
+        Desc    = "Join the AnsonDev Discord server for updates, bug reports and support.",
+        Image   = "message-circle",
+        Buttons = {
+            {
+                Title = "Join Discord",
+                Icon  = "link",
+                Callback = function()
+                    if setclipboard then
+                        setclipboard("https://discord.gg/FBaqTQqutg")
+                        notify("Discord", "Invite link copied to clipboard.")
+                    end
+                end,
+            },
+        },
+    })
+
+    HomeTab:Space({ Columns = 3 })
+
+    local FeatGroup1 = HomeTab:Group({})
+    local f1 = FeatGroup1:Section({ Title = "Auto Merge", Box = true, BoxBorder = true, Opened = true })
+    f1:Section({ Title = "Automatically detects and merges matching nukes in your base.", TextSize = 13, TextTransparency = 0.35 })
+    FeatGroup1:Space()
+    local f2 = FeatGroup1:Section({ Title = "Auto Upgrade", Box = true, BoxBorder = true, Opened = true })
+    f2:Section({ Title = "Continuously fires selected upgrade types (MAX / TIER / LOCKBASE).", TextSize = 13, TextTransparency = 0.35 })
+
+    HomeTab:Space({ Columns = 2 })
+
+    local FeatGroup2 = HomeTab:Group({})
+    local f3 = FeatGroup2:Section({ Title = "Auto Pick Up", Box = true, BoxBorder = true, Opened = true })
+    f3:Section({ Title = "Teleports to each nuke and picks it up, drops singles back.", TextSize = 13, TextTransparency = 0.35 })
+    FeatGroup2:Space()
+    local f4 = FeatGroup2:Section({ Title = "Player Tools", Box = true, BoxBorder = true, Opened = true })
+    f4:Section({ Title = "Fly, Noclip, Walk Speed, Jump Power, ESP and more.", TextSize = 13, TextTransparency = 0.35 })
+end
+
+-- ═══════════════════════════════════════════════════
+--  MAIN TAB
+-- ═══════════════════════════════════════════════════
+do
+    local MainTab = CoreSection:Tab({ Title = "Main", Icon = "zap" })
+
+    -- Auto Merge
+    local MergeSection = MainTab:Section({ Title = "Nuke Automation", Box = true, BoxBorder = true, Opened = true })
+
+    MergeSection:Toggle({
+        Title    = "Auto Merge",
+        Desc     = "Automatically merges matching nukes in your base",
+        Callback = function(v)
+            S.AutoMerge = v
+            if not v then return end
+            task.spawn(function()
+                while S.AutoMerge do
+                    local base = getPlayerBase()
+                    if base and base:FindFirstChild("Nukes") then
+                        local counts = {}
+                        for _, nuke in ipairs(base.Nukes:GetChildren()) do
+                            if nuke.Name == "Nuke" and nuke:FindFirstChild("OverheadNuke")
+                                and nuke.OverheadNuke:FindFirstChild("TextLabel") then
+                                local t = nuke.OverheadNuke.TextLabel.Text
+                                if t and t ~= "" then
+                                    counts[t] = counts[t] or {}
+                                    table.insert(counts[t], nuke)
+                                end
+                            end
+                        end
+                        for _, matches in pairs(counts) do
+                            if #matches >= 2 then
+                                local pu = ReplicatedStorage.NukeRemotes.PickUp
+                                local mr = ReplicatedStorage.NukeRemotes.MergeRequest
+                                pu:FireServer(matches[1])
+                                task.wait()
+                                mr:FireServer(matches[2])
+                                break
+                            end
                         end
                     end
+                    task.wait()
                 end
             end)
-        else
-            if shared.NoclipConnection then shared.NoclipConnection:Disconnect() end
-        end
-    end,
-})
+        end,
+    })
 
--- ============================================================
---  UNIVERSAL TAB — VISUALS / ESP
--- ============================================================
+    MergeSection:Space()
 
-UniversalTab:CreateSection("Visuals")
+    MergeSection:Toggle({
+        Title    = "Auto Pick Up All",
+        Desc     = "Teleports to each nuke, picks up, drops singles back",
+        Callback = function(v)
+            S.AutoPickUp = v
+            if not v then return end
+            task.spawn(function()
+                while S.AutoPickUp do
+                    local base = getPlayerBase()
+                    if base and base:FindFirstChild("Nukes") then
+                        local counts = {}
+                        for _, nuke in ipairs(base.Nukes:GetChildren()) do
+                            if nuke.Name == "Nuke" and nuke:FindFirstChild("OverheadNuke")
+                                and nuke.OverheadNuke:FindFirstChild("TextLabel") then
+                                local t = nuke.OverheadNuke.TextLabel.Text
+                                if t and t ~= "" then
+                                    counts[t] = counts[t] or {}
+                                    table.insert(counts[t], nuke)
+                                end
+                            end
+                        end
+                        for _, nuke in ipairs(base.Nukes:GetChildren()) do
+                            if not S.AutoPickUp then break end
+                            if nuke.Name == "Nuke" and nuke:FindFirstChild("OverheadNuke")
+                                and nuke.OverheadNuke:FindFirstChild("TextLabel") then
+                                local t = nuke.OverheadNuke.TextLabel.Text
+                                local mc = counts[t] and #counts[t] or 0
+                                local pu = ReplicatedStorage.NukeRemotes.PickUp
+                                local root = getHRP()
+                                local origCF = root and root.CFrame
+                                teleportTo(nuke)
+                                task.wait()
+                                pu:FireServer(nuke)
+                                task.wait()
+                                if mc < 2 then
+                                    local drop = ReplicatedStorage.NukeRemotes.Drop
+                                    if root then drop:FireServer(root.CFrame)
+                                    else drop:FireServer(CFrame.new(290.03,17.20,249.74)) end
+                                    task.wait()
+                                end
+                                if root and origCF then root.CFrame = origCF end
+                            end
+                        end
+                    end
+                    task.wait()
+                end
+            end)
+        end,
+    })
 
-local function CleanUpPlayerESP(Player)
-    if shared.EspConnections[Player] then
-        for _, Connection in ipairs(shared.EspConnections[Player]) do
-            Connection:Disconnect()
-        end
-        shared.EspConnections[Player] = nil
-    end
-    if shared.EspFolder then
-        local Container = shared.EspFolder:FindFirstChild(Player.Name)
-        if Container then Container:Destroy() end
-    end
+    MergeSection:Space()
+
+    MergeSection:Toggle({
+        Title    = "Auto Lock Base",
+        Desc     = "Continuously fires the lock base event",
+        Callback = function(v)
+            S.AutoLock = v
+            if not v then return end
+            task.spawn(function()
+                while S.AutoLock do
+                    task.wait()
+                    ReplicatedStorage.NukeRemotes.RequestLockBase:FireServer()
+                end
+            end)
+        end,
+    })
+
+    MainTab:Space()
+
+    -- Auto Upgrade
+    local UpgradeSection = MainTab:Section({ Title = "Upgrade", Box = true, BoxBorder = true, Opened = true })
+
+    UpgradeSection:Dropdown({
+        Title    = "Select Upgrade Types",
+        Desc     = "Choose which upgrades to fire automatically",
+        Values   = { "MAX", "TIER", "LOCKBASE" },
+        Multi    = true,
+        Value    = nil,
+        AllowNone = true,
+        Callback = function(v)
+            S.SelectedUpgrades = {}
+            if type(v) == "table" then
+                for _, val in ipairs(v) do table.insert(S.SelectedUpgrades, val) end
+            elseif v then
+                table.insert(S.SelectedUpgrades, v)
+            end
+        end,
+    })
+
+    UpgradeSection:Space()
+
+    UpgradeSection:Toggle({
+        Title    = "Auto Upgrade",
+        Desc     = "Fires selected upgrade events continuously",
+        Callback = function(v)
+            S.AutoUpgrade = v
+            if not v then return end
+            task.spawn(function()
+                while S.AutoUpgrade do
+                    local ev = ReplicatedStorage.NukeRemotes.PurchaseUpgrade
+                    for _, utype in ipairs(S.SelectedUpgrades) do
+                        if not S.AutoUpgrade then break end
+                        ev:FireServer(utype)
+                    end
+                    task.wait()
+                end
+            end)
+        end,
+    })
+
+    MainTab:Space()
+
+    -- Teleport
+    local TpSection = MainTab:Section({ Title = "Teleport", Box = true, BoxBorder = true, Opened = true })
+
+    local TpGroup = TpSection:Group({})
+    TpGroup:Button({
+        Title    = "Teleport to Spawn",
+        Icon     = "home",
+        Justify  = "Center",
+        Callback = function()
+            local root = getHRP(); if not root then return end
+            local spawn = Workspace:FindFirstChildOfClass("SpawnLocation")
+            if spawn then root.CFrame = CFrame.new(spawn.Position + Vector3.new(0,5,0)) end
+        end,
+    })
+    TpGroup:Space()
+    TpGroup:Button({
+        Title    = "Teleport to Base",
+        Icon     = "map-pin",
+        Justify  = "Center",
+        Callback = function()
+            local base = getPlayerBase()
+            if base then teleportTo(base)
+            else notify("Teleport", "Could not find your base.") end
+        end,
+    })
 end
 
-local function ConstructFullESP(Player)
-    if Player == LocalPlayer then return end
-    CleanUpPlayerESP(Player)
+-- ═══════════════════════════════════════════════════
+--  PLAYER TAB
+-- ═══════════════════════════════════════════════════
+do
+    local PlayerTab = CoreSection:Tab({ Title = "Player", Icon = "user" })
 
-    shared.EspConnections[Player] = {}
-    if not shared.EspFolder then return end
+    -- Movement
+    local MovSection = PlayerTab:Section({ Title = "Movement", Box = true, BoxBorder = true, Opened = true })
 
-    local Container        = Instance.new("Folder")
-    Container.Name         = Player.Name
-    Container.Parent       = shared.EspFolder
+    MovSection:Slider({
+        Title = "Walk Speed", Step = 1, Value = { Min=16, Max=500, Default=16 },
+        Callback = function(v)
+            S.WalkVal = v
+            if S.WalkEnabled then local h=getHum(); if h then h.WalkSpeed=v end end
+        end,
+    })
+    MovSection:Space()
+    MovSection:Toggle({
+        Title = "Enable Walk Speed",
+        Callback = function(v)
+            S.WalkEnabled = v
+            local h = getHum()
+            if h then h.WalkSpeed = v and S.WalkVal or 16 end
+        end,
+    })
+    MovSection:Space()
+    MovSection:Slider({
+        Title = "Jump Power", Step = 5, Value = { Min=50, Max=1000, Default=50 },
+        Callback = function(v)
+            S.JumpVal = v
+            if S.JumpEnabled then
+                local h=getHum(); if h then h.UseJumpPower=true; h.JumpPower=v end
+            end
+        end,
+    })
+    MovSection:Space()
+    MovSection:Toggle({
+        Title = "Enable Jump Power",
+        Callback = function(v)
+            S.JumpEnabled = v
+            local h = getHum()
+            if h then h.UseJumpPower=true; h.JumpPower = v and S.JumpVal or 50 end
+        end,
+    })
+    MovSection:Space()
+    MovSection:Toggle({
+        Title = "Infinite Jump",
+        Callback = function(v) S.InfJump = v end,
+    })
 
-    local function CreateNameTag(Char)
-        if not Char then return end
-        local Root = Char:WaitForChild("HumanoidRootPart", 5)
-        if not Root then return end
+    PlayerTab:Space()
 
-        local BbGui              = Instance.new("BillboardGui")
-        BbGui.Name               = "EspNameTag"
-        BbGui.AlwaysOnTop        = true
-        BbGui.Size               = UDim2.new(0, 200, 0, 50)
-        BbGui.StudsOffset        = Vector3.new(0, 3, 0)
-        BbGui.Adornee            = Root
-        BbGui.Parent             = Container
+    -- Advanced
+    local AdvSection = PlayerTab:Section({ Title = "Advanced Movement", Box = true, BoxBorder = true, Opened = true })
 
-        local TextLabel                    = Instance.new("TextLabel")
-        TextLabel.Size                     = UDim2.new(1, 0, 1, 0)
-        TextLabel.BackgroundTransparency   = 1
-        TextLabel.Text                     = Player.Name
-        TextLabel.TextColor3               = Color3.fromRGB(255, 0, 0)
-        TextLabel.TextSize                 = 14
-        TextLabel.Font                     = Enum.Font.SourceSansBold
-        TextLabel.TextStrokeTransparency   = 0
-        TextLabel.TextStrokeColor3         = Color3.fromRGB(0, 0, 0)
-        TextLabel.Parent                   = BbGui
-    end
+    AdvSection:Slider({
+        Title = "Fly Speed", Step = 5, Value = { Min=10, Max=500, Default=50 },
+        Callback = function(v) S.FlySpeed = v end,
+    })
+    AdvSection:Space()
+    AdvSection:Toggle({
+        Title = "Fly", Desc = "PC: WASD + Space / Shift   Mobile: joystick",
+        Callback = function(v) if v then startFly() else stopFly() end end,
+    })
+    AdvSection:Space()
+    AdvSection:Toggle({
+        Title = "Noclip", Desc = "Walk through walls",
+        Callback = function(v) if v then startNoclip() else stopNoclip() end end,
+    })
 
-    if Player.Character then CreateNameTag(Player.Character) end
-    
-    local CharAdded = Player.CharacterAdded:Connect(function(Char)
-        task.wait(0.5)
-        CreateNameTag(Char)
-    end)
-    table.insert(shared.EspConnections[Player], CharAdded)
+    PlayerTab:Space()
+
+    -- Visuals
+    local VisSection = PlayerTab:Section({ Title = "Visuals", Box = true, BoxBorder = true, Opened = true })
+
+    VisSection:Toggle({
+        Title = "Player ESP", Desc = "Shows player names above their heads",
+        Callback = function(v)
+            S.EspEnabled = v
+            if v then
+                for _,p in ipairs(Players:GetPlayers()) do buildESP(p) end
+                S.EspAddConn = Players.PlayerAdded:Connect(buildESP)
+                S.EspRemConn = Players.PlayerRemoving:Connect(cleanESP)
+            else
+                if S.EspAddConn then S.EspAddConn:Disconnect() end
+                if S.EspRemConn then S.EspRemConn:Disconnect() end
+                for _,p in ipairs(Players:GetPlayers()) do cleanESP(p) end
+            end
+        end,
+    })
+
+    PlayerTab:Space()
+
+    PlayerTab:Button({
+        Title = "Reset Player Stats", Icon = "rotate-ccw",
+        Desc  = "Resets WalkSpeed and JumpPower to default",
+        Callback = function()
+            local h = getHum()
+            if h then h.WalkSpeed=16; h.UseJumpPower=true; h.JumpPower=50 end
+            notify("Player", "Stats reset to default.")
+        end,
+    })
 end
 
-UniversalTab:CreateToggle({
-    Name = "Player ESP",
-    CurrentValue = false,
-    Flag = "EspToggle",
-    Callback = function(Value)
-        shared.EspEnabled = Value
-        if shared.EspEnabled then
-            for _, Player in ipairs(Players:GetPlayers()) do
-                ConstructFullESP(Player)
-            end
-            shared.PlayerAddedConn   = Players.PlayerAdded:Connect(ConstructFullESP)
-            shared.PlayerRemovingConn = Players.PlayerRemoving:Connect(CleanUpPlayerESP)
-        else
-            if shared.PlayerAddedConn   then shared.PlayerAddedConn:Disconnect()   end
-            if shared.PlayerRemovingConn then shared.PlayerRemovingConn:Disconnect() end
-            for _, Player in ipairs(Players:GetPlayers()) do
-                CleanUpPlayerESP(Player)
-            end
-        end
-    end,
-})
+-- ═══════════════════════════════════════════════════
+--  MISC TAB
+-- ═══════════════════════════════════════════════════
+do
+    local MiscTab = ExtraSection:Tab({ Title = "Misc", Icon = "wrench" })
 
--- ============================================================
---  CHARACTER RESPAWN — restore settings
--- ============================================================
+    local UtilSection = MiscTab:Section({ Title = "Utilities", Box = true, BoxBorder = true, Opened = true })
 
-LocalPlayer.CharacterAdded:Connect(function(Character)
-    local Humanoid = Character:WaitForChild("Humanoid")
-    task.wait(0.5) 
-    
-    if Rayfield.Flags["WalkSpeedSlider"] then
-        Humanoid.WalkSpeed = Rayfield.Flags["WalkSpeedSlider"].CurrentValue
-    end
-    if Rayfield.Flags["JumpPowerSlider"] then
-        Humanoid.UseJumpPower = true
-        Humanoid.JumpPower = Rayfield.Flags["JumpPowerSlider"].CurrentValue
-    end
-    if shared.FlyEnabled then
-        shared.HandleFlight()
-    end
+    UtilSection:Toggle({
+        Title = "Anti AFK", Desc = "Fires on idle event only, zero performance cost",
+        Callback = function(v)
+            if v then
+                local VirtualUser = game:GetService("VirtualUser")
+                LocalPlayer.Idled:Connect(function()
+                    VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+                    task.wait(0.1)
+                    VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+                end)
+            end
+            notify("Anti AFK", v and "ON" or "OFF")
+        end,
+    })
+end
+
+-- ═══════════════════════════════════════════════════
+--  SETTINGS TAB
+-- ═══════════════════════════════════════════════════
+do
+    local SettingsTab = ExtraSection:Tab({ Title = "Settings", Icon = "settings" })
+
+    local UISection = SettingsTab:Section({ Title = "Interface", Box = true, BoxBorder = true, Opened = true })
+
+    UISection:Keybind({
+        Title = "Toggle UI", Desc = "Key to show / hide the window",
+        Value = "RightAlt",
+        Callback = function(v)
+            pcall(function() Window:SetToggleKey(Enum.KeyCode[v]) end)
+        end,
+    })
+
+    SettingsTab:Space()
+
+    SettingsTab:Section({ Title = "Credits", Box = true, BoxBorder = true, Opened = true }):Section({
+        Title = "Made by AnsonDev\ndiscord.gg/FBaqTQqutg",
+        TextSize = 14, TextTransparency = 0.3,
+    })
+
+    SettingsTab:Space()
+
+    SettingsTab:Button({
+        Title    = "Destroy UI",
+        Desc     = "Completely removes the interface",
+        Icon     = "trash-2",
+        Color    = Color3.fromHex("#ef4444"),
+        Justify  = "Center",
+        Callback = function() Window:Destroy() end,
+    })
+end
+
+-- ═══════════════════════════════════════════════════
+--  Respawn restore
+-- ═══════════════════════════════════════════════════
+LocalPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    local hum = char:WaitForChild("Humanoid", 5); if not hum then return end
+    if S.WalkEnabled  then hum.WalkSpeed = S.WalkVal end
+    if S.JumpEnabled  then hum.UseJumpPower = true; hum.JumpPower = S.JumpVal end
+    if S.FlyEnabled   then startFly()    end
+    if S.NoclipEnabled then startNoclip() end
 end)
 
--- ============================================================
---  CREDITS TAB
--- ============================================================
-
-CreditsTab:CreateSection("AnsonDev")
-
-CreditsTab:CreateLabel("AnsonDev Hub — Made by AnsonDev")
-
-CreditsTab:CreateButton({
-    Name = "Copy Discord",
-    Callback = function() 
-        setclipboard("https://discord.gg/SD4m6mDCPf")
-        Rayfield:Notify({
-            Title = "AnsonDev Hub",
-            Content = "Discord link copied to your clipboard!",
-            Duration = 3,
-            Image = 4483362458,
-        })
-    end
-})
-
-CreditsTab:CreateButton({
-    Name = "Open Discord",
-    Callback = function()
-        Rayfield:Notify({
-            Title = "AnsonDev Hub",
-            Content = "Join us at discord.gg/SD4m6mDCPf",
-            Duration = 5,
-            Image = 4483362458,
-        })
-    end
+WindUI:Notify({
+    Title   = "AnsonDev",
+    Content = "Merge a Nuke v1.0 loaded.",
+    Icon    = "zap",
+    Duration = 4,
 })
