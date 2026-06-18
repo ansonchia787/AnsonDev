@@ -21,7 +21,7 @@ local camera = workspace.CurrentCamera
 -- ═══════════════════════════════════════════════════
 --  State
 -- ═══════════════════════════════════════════════════
-local State = {
+local S = {
     farmPoints    = {},
     farmIndex     = 1,
     farmRunning   = false,
@@ -174,32 +174,31 @@ end
 --  Auto Farm
 -- ═══════════════════════════════════════════════════
 local function stopFarm()
-    State.farmRunning = false
-    if State.farmConn then State.farmConn:Disconnect(); State.farmConn = nil end
+    S.farmRunning = false
+    if S.farmConn then S.farmConn:Disconnect(); S.farmConn = nil end
     local vr = getVehicleRoot()
     if vr then cleanInst(vr,"FarmBV"); cleanInst(vr,"FarmBG") end
     local s = getSeat(); if s then s.ThrottleFloat=0; s.SteerFloat=0 end
 end
 local function startFarm(points)
-    local pts = points or State.farmPoints
+    local pts = points or S.farmPoints
     if #pts < 2 then return false,"Need at least 2 points." end
     if not getVehicleRoot() then return false,"Sit on the moped first." end
-    State.farmRunning = true; State.farmIndex = 1
-    State.farmConn = RunService.Heartbeat:Connect(function()
-        if not State.farmRunning then return end
+    S.farmRunning = true; S.farmIndex = 1
+    S.farmConn = RunService.Heartbeat:Connect(function()
+        if not S.farmRunning then return end
         local vr = getVehicleRoot(); if not vr then stopFarm(); return end
-        local t = pts[State.farmIndex]; if not t then State.farmIndex=1; return end
+        local t = pts[S.farmIndex]; if not t then S.farmIndex=1; return end
         local c = vr.Position
         local dx,dy,dz = t.X-c.X, t.Y-c.Y, t.Z-c.Z
-        if math.sqrt(dx*dx+dy*dy+dz*dz) < State.arrivalDist then
-            State.farmIndex = (State.farmIndex % #pts) + 1
-            t = pts[State.farmIndex]; dx,dy,dz = t.X-c.X, t.Y-c.Y, t.Z-c.Z
+        if math.sqrt(dx*dx+dy*dy+dz*dz) < S.arrivalDist then
+            S.farmIndex = (S.farmIndex % #pts) + 1
+            t = pts[S.farmIndex]; dx,dy,dz = t.X-c.X, t.Y-c.Y, t.Z-c.Z
         end
         local fd = Vector3.new(dx,0,dz)
         if fd.Magnitude < 0.01 then fd = Vector3.new(1,0,0) end
         fd = fd.Unit
-        local bv = ensureBV(vr,"FarmBV",1e6)
-        bv.Velocity = fd*State.farmSpeed + Vector3.new(0, math.clamp(dy,-1,1)*State.farmSpeed*0.5, 0)
+        ensureBV(vr,"FarmBV",1e6).Velocity = fd*S.farmSpeed + Vector3.new(0, math.clamp(dy,-1,1)*S.farmSpeed*0.5, 0)
         ensureBG(vr,"FarmBG").CFrame = CFrame.lookAt(c, c+fd)
         local s = getSeat(); if s then s.ThrottleFloat=1 end
     end)
@@ -210,14 +209,14 @@ end
 --  Speed Boost
 -- ═══════════════════════════════════════════════════
 local function stopBoost()
-    State.boostEnabled = false
-    if State.boostConn then State.boostConn:Disconnect(); State.boostConn = nil end
+    S.boostEnabled = false
+    if S.boostConn then S.boostConn:Disconnect(); S.boostConn = nil end
     local vr = getVehicleRoot(); if vr then cleanInst(vr,"BoostBV") end
 end
 local function startBoost()
-    State.boostEnabled = true
-    State.boostConn = RunService.Heartbeat:Connect(function()
-        if not State.boostEnabled then return end
+    S.boostEnabled = true
+    S.boostConn = RunService.Heartbeat:Connect(function()
+        if not S.boostEnabled then return end
         local vr,seat = getVehicleRoot(), getSeat()
         if not vr or not seat then return end
         local moving = UserInputService:IsKeyDown(Enum.KeyCode.W)
@@ -225,8 +224,10 @@ local function startBoost()
         if not moving and hum and hum.MoveDirection.Magnitude > 0.1 then moving = true end
         if moving then
             local fv = Vector3.new(vr.Velocity.X,0,vr.Velocity.Z)
-            local dir = fv.Magnitude < 1 and Vector3.new(seat.CFrame.LookVector.X,0,seat.CFrame.LookVector.Z).Unit or fv.Unit
-            ensureBV(vr,"BoostBV",1e6).Velocity = dir * math.max(fv.Magnitude,20) * State.boostMulti
+            local dir = fv.Magnitude < 1
+                and Vector3.new(seat.CFrame.LookVector.X,0,seat.CFrame.LookVector.Z).Unit
+                or fv.Unit
+            ensureBV(vr,"BoostBV",1e6).Velocity = dir * math.max(fv.Magnitude,20) * S.boostMulti
             seat.ThrottleFloat = 1
         else cleanInst(vr,"BoostBV"); seat.ThrottleFloat = 0 end
     end)
@@ -236,19 +237,19 @@ end
 --  Fly (V3, R6 + R15)
 -- ═══════════════════════════════════════════════════
 local flyStates = {
-    Enum.HumanoidStateType.Climbing, Enum.HumanoidStateType.FallingDown,
-    Enum.HumanoidStateType.Flying, Enum.HumanoidStateType.Freefall,
-    Enum.HumanoidStateType.GettingUp, Enum.HumanoidStateType.Jumping,
-    Enum.HumanoidStateType.Landed, Enum.HumanoidStateType.Physics,
+    Enum.HumanoidStateType.Climbing,         Enum.HumanoidStateType.FallingDown,
+    Enum.HumanoidStateType.Flying,           Enum.HumanoidStateType.Freefall,
+    Enum.HumanoidStateType.GettingUp,        Enum.HumanoidStateType.Jumping,
+    Enum.HumanoidStateType.Landed,           Enum.HumanoidStateType.Physics,
     Enum.HumanoidStateType.PlatformStanding, Enum.HumanoidStateType.Ragdoll,
-    Enum.HumanoidStateType.Running, Enum.HumanoidStateType.RunningNoPhysics,
-    Enum.HumanoidStateType.Seated, Enum.HumanoidStateType.StrafingNoPhysics,
+    Enum.HumanoidStateType.Running,          Enum.HumanoidStateType.RunningNoPhysics,
+    Enum.HumanoidStateType.Seated,           Enum.HumanoidStateType.StrafingNoPhysics,
     Enum.HumanoidStateType.Swimming,
 }
 local function stopFly()
-    State.flyEnabled = false; State.flyNowe = false
-    if State.flyConn   then State.flyConn:Disconnect();   State.flyConn   = nil end
-    if State.flyTpConn then State.flyTpConn:Disconnect(); State.flyTpConn = nil end
+    S.flyEnabled = false; S.flyNowe = false
+    if S.flyConn   then S.flyConn:Disconnect();   S.flyConn   = nil end
+    if S.flyTpConn then S.flyTpConn:Disconnect(); S.flyTpConn = nil end
     local torso = getTorso()
     if torso then cleanInst(torso,"FlyBV"); cleanInst(torso,"FlyBG") end
     local hum = getHum(); local c = getChar()
@@ -264,29 +265,29 @@ local function stopFly()
     end
 end
 local function startFly()
-    State.flyEnabled = true; State.flyNowe = true
+    S.flyEnabled = true; S.flyNowe = true
     local hum = getHum(); local c = getChar()
     if not hum or not c then return end
     for _,st in ipairs(flyStates) do hum:SetStateEnabled(st,false) end
     hum:ChangeState(Enum.HumanoidStateType.Swimming); hum.PlatformStand = true
-    State.flyTpConn = RunService.Heartbeat:Connect(function()
-        if not State.flyNowe then return end
+    S.flyTpConn = RunService.Heartbeat:Connect(function()
+        if not S.flyNowe then return end
         local chr = getChar(); local h = getHum()
         if chr and h and h.MoveDirection.Magnitude > 0 then
-            chr:TranslateBy(h.MoveDirection * (State.flySpeed * 0.05)) end
+            chr:TranslateBy(h.MoveDirection * (S.flySpeed * 0.05)) end
     end)
     local torso = getTorso(); if not torso then return end
     ensureBG(torso,"FlyBG").CFrame = torso.CFrame
     ensureBV(torso,"FlyBV",9e9).Velocity = Vector3.new(0,0.1,0)
     local speed,ctrl,last = 0,{f=0,b=0,l=0,r=0},{f=0,b=0,l=0,r=0}
-    State.flyConn = RunService.RenderStepped:Connect(function()
-        if not State.flyNowe then return end
+    S.flyConn = RunService.RenderStepped:Connect(function()
+        if not S.flyNowe then return end
         local h2 = getHum(); if h2 then h2.PlatformStand = true end
-        local ms = State.flySpeed
-        ctrl.f = UserInputService:IsKeyDown(Enum.KeyCode.W) and 1 or 0
-        ctrl.b = UserInputService:IsKeyDown(Enum.KeyCode.S) and -1 or 0
-        ctrl.l = UserInputService:IsKeyDown(Enum.KeyCode.A) and -1 or 0
-        ctrl.r = UserInputService:IsKeyDown(Enum.KeyCode.D) and 1 or 0
+        local ms = S.flySpeed
+        ctrl.f = UserInputService:IsKeyDown(Enum.KeyCode.W)  and 1  or 0
+        ctrl.b = UserInputService:IsKeyDown(Enum.KeyCode.S)  and -1 or 0
+        ctrl.l = UserInputService:IsKeyDown(Enum.KeyCode.A)  and -1 or 0
+        ctrl.r = UserInputService:IsKeyDown(Enum.KeyCode.D)  and 1  or 0
         local hm = getHum()
         if hm then local md = hm.MoveDirection
             if md.Magnitude > 0.1 then
@@ -315,35 +316,32 @@ end
 --  Noclip
 -- ═══════════════════════════════════════════════════
 local function stopNoclip()
-    State.noclipEnabled = false
-    if State.noclipConn then State.noclipConn:Disconnect(); State.noclipConn = nil end
+    S.noclipEnabled = false
+    if S.noclipConn then S.noclipConn:Disconnect(); S.noclipConn = nil end
     local c = getChar()
     if c then for _,p in ipairs(c:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide=true end end end
 end
 local function startNoclip()
-    State.noclipEnabled = true
-    State.noclipConn = RunService.Stepped:Connect(function()
-        if not State.noclipEnabled then return end
+    S.noclipEnabled = true
+    S.noclipConn = RunService.Stepped:Connect(function()
+        if not S.noclipEnabled then stopNoclip(); return end
         local c = getChar(); if not c then return end
         for _,p in ipairs(c:GetDescendants()) do if p:IsA("BasePart") then p.CanCollide=false end end
     end)
 end
 
 -- ═══════════════════════════════════════════════════
---  WindUI Window
+--  Window
 -- ═══════════════════════════════════════════════════
 local Window = WindUI:CreateWindow({
     Title   = "AnsonDev  |  Moped Drag",
     Folder  = "AnsonDev",
     Icon    = "bike",
     NewElements = true,
-    Topbar = {
-        Height      = 48,
-        ButtonsType = "Mac",
-    },
+    Topbar  = { Height = 48, ButtonsType = "Mac" },
     OpenButton = {
         Title           = "AnsonDev",
-        CornerRadius    = UDim.new(1, 0),
+        CornerRadius    = UDim.new(1,0),
         StrokeThickness = 2,
         Enabled         = true,
         Draggable       = true,
@@ -356,92 +354,43 @@ local Window = WindUI:CreateWindow({
     },
 })
 
-Window:Tag({
-    Title  = "v1.0.0",
-    Icon   = "sparkles",
-    Color  = Color3.fromHex("#18181b"),
-    Border = true,
-})
+Window:Tag({ Title = "v1.0.0",     Icon = "sparkles", Color = Color3.fromHex("#18181b"), Border = true })
+Window:Tag({ Title = "Moped Drag", Icon = "bike",     Color = Color3.fromHex("#1e1e2e"), Border = true })
 
-Window:Tag({
-    Title  = "Moped Drag",
-    Icon   = "bike",
-    Color  = Color3.fromHex("#1e1e2e"),
-    Border = true,
-})
+-- ★ 一个 Section 包全部 Tab，Home 第一个加入 = 排最顶 ★
+local AllSection = Window:Section({ Title = "AnsonDev" })
 
 -- ═══════════════════════════════════════════════════
---  HOME TAB  (first, no section so it appears at top)
+--  TAB 1 : Home  ← 顶部第一
 -- ═══════════════════════════════════════════════════
 do
-    local HomeTab = Window:Tab({
-        Title = "Home",
-        Icon  = "house",
+    local HomeTab = AllSection:Tab({ Title = "Home", Icon = "house" })
+
+    local Hero = HomeTab:Section({ Title = "AnsonDev  |  Moped Drag" })
+    Hero:Section({
+        Title = "Welcome back, " .. player.Name,
+        TextSize = 24, FontWeight = Enum.FontWeight.Bold,
     })
-
-    -- Hero banner
-    local HeroSection = HomeTab:Section({ Title = "AnsonDev  |  Moped Drag" })
-
-    HeroSection:Section({
-        Title      = "Welcome back, " .. player.Name,
-        TextSize   = 24,
-        FontWeight = Enum.FontWeight.Bold,
-    })
-
-    HeroSection:Space()
-
-    HeroSection:Section({
-        Title            = "The ultimate Moped Drag automation tool.\nAuto Farm  •  Speed Boost  •  Player Utilities  •  Misc Tools",
-        TextSize         = 15,
-        TextTransparency = 0.35,
-        FontWeight       = Enum.FontWeight.Medium,
-    })
-
-    HeroSection:Space({ Columns = 3 })
-
-    -- Stats row
-    local StatsGroup = HomeTab:Group({})
-
-    StatsGroup:Section({
-        Title      = "Version",
-        TextSize   = 12,
-        TextTransparency = 0.5,
-    })
-    StatsGroup:Section({
-        Title      = "1.0.0",
-        TextSize   = 18,
-        FontWeight = Enum.FontWeight.Bold,
-    })
-
-    StatsGroup:Space()
-
-    StatsGroup:Section({
-        Title      = "Author",
-        TextSize   = 12,
-        TextTransparency = 0.5,
-    })
-    StatsGroup:Section({
-        Title      = "AnsonDev",
-        TextSize   = 18,
-        FontWeight = Enum.FontWeight.Bold,
-    })
-
-    StatsGroup:Space()
-
-    StatsGroup:Section({
-        Title      = "Game",
-        TextSize   = 12,
-        TextTransparency = 0.5,
-    })
-    StatsGroup:Section({
-        Title      = "Moped Drag",
-        TextSize   = 18,
-        FontWeight = Enum.FontWeight.Bold,
+    Hero:Space()
+    Hero:Section({
+        Title = "The ultimate Moped Drag automation tool.\nAuto Farm  •  Speed Boost  •  Player Utilities  •  Misc Tools",
+        TextSize = 15, TextTransparency = 0.35, FontWeight = Enum.FontWeight.Medium,
     })
 
     HomeTab:Space({ Columns = 3 })
 
-    -- Discord card
+    local StatsGroup = HomeTab:Group({})
+    StatsGroup:Section({ Title = "Version",    TextSize = 12, TextTransparency = 0.5 })
+    StatsGroup:Section({ Title = "1.0.0",      TextSize = 18, FontWeight = Enum.FontWeight.Bold })
+    StatsGroup:Space()
+    StatsGroup:Section({ Title = "Author",     TextSize = 12, TextTransparency = 0.5 })
+    StatsGroup:Section({ Title = "AnsonDev",   TextSize = 18, FontWeight = Enum.FontWeight.Bold })
+    StatsGroup:Space()
+    StatsGroup:Section({ Title = "Game",       TextSize = 12, TextTransparency = 0.5 })
+    StatsGroup:Section({ Title = "Moped Drag", TextSize = 18, FontWeight = Enum.FontWeight.Bold })
+
+    HomeTab:Space({ Columns = 3 })
+
     HomeTab:Paragraph({
         Title   = "Community  &  Support",
         Desc    = "Join the AnsonDev Discord server for updates, bug reports and support.",
@@ -453,7 +402,7 @@ do
                 Callback = function()
                     if setclipboard then
                         setclipboard("https://discord.gg/FBaqTQqutg")
-                        notify("Discord", "Invite link copied to clipboard.")
+                        notify("Discord","Invite link copied to clipboard.")
                     end
                 end,
             },
@@ -462,61 +411,42 @@ do
 
     HomeTab:Space({ Columns = 3 })
 
-    -- Quick feature cards
     local FeatGroup1 = HomeTab:Group({})
-
     local f1 = FeatGroup1:Section({ Title = "Auto Farm", Box = true, BoxBorder = true, Opened = true })
     f1:Section({ Title = "Loop between up to 4 custom points or use preset race track coordinates.", TextSize = 13, TextTransparency = 0.35 })
-
     FeatGroup1:Space()
-
     local f2 = FeatGroup1:Section({ Title = "Speed Boost", Box = true, BoxBorder = true, Opened = true })
     f2:Section({ Title = "Multiply moped velocity on the ground. Override MaxSpeed and RPM cap.", TextSize = 13, TextTransparency = 0.35 })
 
     HomeTab:Space({ Columns = 2 })
 
     local FeatGroup2 = HomeTab:Group({})
-
     local f3 = FeatGroup2:Section({ Title = "Player Tools", Box = true, BoxBorder = true, Opened = true })
     f3:Section({ Title = "Walk Speed, Jump Power, Fly, Noclip, God Mode, Infinite Jump.", TextSize = 13, TextTransparency = 0.35 })
-
     FeatGroup2:Space()
-
     local f4 = FeatGroup2:Section({ Title = "Misc", Box = true, BoxBorder = true, Opened = true })
     f4:Section({ Title = "Anti AFK, FPS Boost, Rejoin, Server Hop, Teleport to Player.", TextSize = 13, TextTransparency = 0.35 })
 end
 
 -- ═══════════════════════════════════════════════════
---  Sections for remaining tabs
--- ═══════════════════════════════════════════════════
-local CoreSection  = Window:Section({ Title = "Core"  })
-local ExtraSection = Window:Section({ Title = "Extra" })
-
--- ═══════════════════════════════════════════════════
---  TAB: Auto Farm
+--  TAB 2 : Auto Farm
 -- ═══════════════════════════════════════════════════
 do
-    local FarmTab = CoreSection:Tab({
-        Title = "Auto Farm",
-        Icon  = "map-pin",
-    })
+    local FarmTab = AllSection:Tab({ Title = "Auto Farm", Icon = "map-pin" })
 
-    -- Points
-    local PointSection = FarmTab:Section({
-        Title = "Waypoints", Box = true, BoxBorder = true, Opened = true,
-    })
+    local PointSection = FarmTab:Section({ Title = "Waypoints", Box = true, BoxBorder = true, Opened = true })
 
     local PointGroup = PointSection:Group({})
     for i = 1, 4 do
         PointGroup:Button({
-            Title    = "Save P" .. i,
-            Icon     = "map-pin",
-            Justify  = "Center",
+            Title   = "Save P" .. i,
+            Icon    = "map-pin",
+            Justify = "Center",
             Callback = function()
                 local vr = getVehicleRoot()
                 if not vr then notify("Auto Farm","Sit on the moped first."); return end
-                State.farmPoints[i] = vr.Position
-                local p = State.farmPoints[i]
+                S.farmPoints[i] = vr.Position
+                local p = S.farmPoints[i]
                 notify("P"..i.." Saved", string.format("X:%.0f  Y:%.0f  Z:%.0f", p.X,p.Y,p.Z))
             end,
         })
@@ -524,37 +454,32 @@ do
     end
 
     PointSection:Space()
-
     PointSection:Button({
-        Title    = "Clear All Points",
-        Icon     = "trash-2",
+        Title = "Clear All Points", Icon = "trash-2",
         Callback = function()
-            State.farmPoints = {}; stopFarm()
+            S.farmPoints = {}; stopFarm()
             notify("Auto Farm","All points cleared.")
         end,
     })
 
     FarmTab:Space()
 
-    -- Controls
-    local CtrlSection = FarmTab:Section({
-        Title = "Farm Control", Box = true, BoxBorder = true, Opened = true,
-    })
+    local CtrlSection = FarmTab:Section({ Title = "Farm Control", Box = true, BoxBorder = true, Opened = true })
 
     CtrlSection:Toggle({
-        Title    = "Manual Farm  (P1 → P4 loop)",
-        Desc     = "Cycles through all saved waypoints",
+        Title = "Manual Farm  (P1 -> P4 loop)",
+        Desc  = "Cycles through all saved waypoints in order",
         Callback = function(v)
             if v then
-                local ok,msg = startFarm(State.farmPoints)
+                local ok,msg = startFarm(S.farmPoints)
                 if not ok then notify("Auto Farm",msg) end
             else stopFarm() end
         end,
     })
     CtrlSection:Space()
     CtrlSection:Toggle({
-        Title    = "Full Auto Farm  (Preset)",
-        Desc     = "11185, 4, 836   ↔   15777, 4, 836",
+        Title = "Full Auto Farm  (Preset)",
+        Desc  = "11185, 4, 836   <->   15777, 4, 836",
         Callback = function(v)
             if v then
                 if not getVehicleRoot() then notify("Auto Farm","Sit on the moped first."); return end
@@ -566,21 +491,17 @@ do
 
     FarmTab:Space()
 
-    -- Settings
-    local FarmSetSection = FarmTab:Section({
-        Title = "Settings", Box = true, BoxBorder = true, Opened = true,
-    })
-
+    local FarmSetSection = FarmTab:Section({ Title = "Settings", Box = true, BoxBorder = true, Opened = true })
     FarmSetSection:Slider({
         Title = "Farm Speed", Desc = "studs/s",
         Step = 10, Value = { Min=10, Max=1000, Default=150 },
-        Callback = function(v) State.farmSpeed = v end,
+        Callback = function(v) S.farmSpeed = v end,
     })
     FarmSetSection:Space()
     FarmSetSection:Slider({
         Title = "Arrival Distance", Desc = "How close before switching waypoint",
         Step = 1, Value = { Min=3, Max=40, Default=12 },
-        Callback = function(v) State.arrivalDist = v end,
+        Callback = function(v) S.arrivalDist = v end,
     })
     FarmSetSection:Space()
     FarmSetSection:Button({
@@ -590,18 +511,12 @@ do
 end
 
 -- ═══════════════════════════════════════════════════
---  TAB: Speed Boost
+--  TAB 3 : Speed Boost
 -- ═══════════════════════════════════════════════════
 do
-    local BoostTab = CoreSection:Tab({
-        Title = "Speed Boost",
-        Icon  = "zap",
-    })
+    local BoostTab = AllSection:Tab({ Title = "Speed Boost", Icon = "zap" })
 
-    local BoostSection = BoostTab:Section({
-        Title = "Velocity Boost", Box = true, BoxBorder = true, Opened = true,
-    })
-
+    local BoostSection = BoostTab:Section({ Title = "Velocity Boost", Box = true, BoxBorder = true, Opened = true })
     BoostSection:Section({
         Title = "Multiplies moped velocity while keeping direction.\nPC: hold W   Mobile: use joystick",
         TextSize = 13, TextTransparency = 0.4,
@@ -610,7 +525,7 @@ do
     BoostSection:Slider({
         Title = "Speed Multiplier",
         Step = 1, Value = { Min=1, Max=20, Default=2 },
-        Callback = function(v) State.boostMulti = v end,
+        Callback = function(v) S.boostMulti = v end,
     })
     BoostSection:Space()
     BoostSection:Toggle({
@@ -622,10 +537,7 @@ do
 
     BoostTab:Space()
 
-    local PhysSection = BoostTab:Section({
-        Title = "Physics Override", Box = true, BoxBorder = true, Opened = true,
-    })
-
+    local PhysSection = BoostTab:Section({ Title = "Physics Override", Box = true, BoxBorder = true, Opened = true })
     PhysSection:Section({
         Title = "Directly patches VehicleSeat MaxSpeed and HingeConstraint torque.\nSit on moped before applying.",
         TextSize = 13, TextTransparency = 0.4,
@@ -634,22 +546,22 @@ do
     PhysSection:Slider({
         Title = "Max Speed",
         Step = 10, Value = { Min=50, Max=1000, Default=300 },
-        Callback = function(v) State.mopedMaxSpd = v end,
+        Callback = function(v) S.mopedMaxSpd = v end,
     })
     PhysSection:Space()
     PhysSection:Slider({
         Title = "Max Torque  (RPM cap override)",
         Step = 1000, Value = { Min=1000, Max=500000, Default=50000 },
-        Callback = function(v) State.mopedTorque = v end,
+        Callback = function(v) S.mopedTorque = v end,
     })
     PhysSection:Space()
     PhysSection:Button({
         Title = "Apply to Moped Now", Icon = "wrench",
         Callback = function()
-            local ok = overrideMopedPhysics(State.mopedMaxSpd, State.mopedTorque)
+            local ok = overrideMopedPhysics(S.mopedMaxSpd, S.mopedTorque)
             notify(
                 ok and "Applied" or "Failed",
-                ok and ("MaxSpeed: "..State.mopedMaxSpd.."   Torque: "..State.mopedTorque)
+                ok and ("MaxSpeed: "..S.mopedMaxSpd.."   Torque: "..S.mopedTorque)
                     or "Sit on the moped first."
             )
         end,
@@ -657,50 +569,42 @@ do
 end
 
 -- ═══════════════════════════════════════════════════
---  TAB: Player
+--  TAB 4 : Player
 -- ═══════════════════════════════════════════════════
 do
-    local PlayerTab = CoreSection:Tab({
-        Title = "Player",
-        Icon  = "user",
-    })
+    local PlayerTab = AllSection:Tab({ Title = "Player", Icon = "user" })
 
-    local MovSection = PlayerTab:Section({
-        Title = "Movement", Box = true, BoxBorder = true, Opened = true,
-    })
-
+    local MovSection = PlayerTab:Section({ Title = "Movement", Box = true, BoxBorder = true, Opened = true })
     MovSection:Slider({
         Title = "Walk Speed", Step=1, Value={Min=8,Max=500,Default=16},
         Callback = function(v)
-            State.walkVal = v
-            if State.walkEnabled then local h=getHum(); if h then h.WalkSpeed=v end end
+            S.walkVal = v
+            if S.walkEnabled then local h=getHum(); if h then h.WalkSpeed=v end end
         end,
     })
     MovSection:Space()
     MovSection:Toggle({
         Title = "Enable Walk Speed",
         Callback = function(v)
-            State.walkEnabled = v
-            local h=getHum(); if h then h.WalkSpeed = v and State.walkVal or 16 end
+            S.walkEnabled = v
+            local h=getHum(); if h then h.WalkSpeed = v and S.walkVal or 16 end
         end,
     })
     MovSection:Space()
     MovSection:Slider({
         Title = "Jump Power", Step=5, Value={Min=0,Max=500,Default=50},
         Callback = function(v)
-            State.jumpVal = v
-            if State.jumpEnabled then
-                local h=getHum(); if h then h.UseJumpPower=true; h.JumpPower=v end
-            end
+            S.jumpVal = v
+            if S.jumpEnabled then local h=getHum(); if h then h.UseJumpPower=true; h.JumpPower=v end end
         end,
     })
     MovSection:Space()
     MovSection:Toggle({
         Title = "Enable Jump Power",
         Callback = function(v)
-            State.jumpEnabled = v
+            S.jumpEnabled = v
             local h=getHum()
-            if h then h.UseJumpPower=true; h.JumpPower=v and State.jumpVal or 50 end
+            if h then h.UseJumpPower=true; h.JumpPower = v and S.jumpVal or 50 end
         end,
     })
     MovSection:Space()
@@ -708,37 +612,34 @@ do
         Title = "Infinite Jump",
         Callback = function(v)
             if v then
-                State.infJumpConn = UserInputService.JumpRequest:Connect(function()
+                S.infJumpConn = UserInputService.JumpRequest:Connect(function()
                     local h=getHum(); if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end
                 end)
             else
-                if State.infJumpConn then State.infJumpConn:Disconnect(); State.infJumpConn=nil end
+                if S.infJumpConn then S.infJumpConn:Disconnect(); S.infJumpConn=nil end
             end
         end,
     })
 
     PlayerTab:Space()
 
-    local AbilSection = PlayerTab:Section({
-        Title = "Abilities", Box = true, BoxBorder = true, Opened = true,
-    })
-
+    local AbilSection = PlayerTab:Section({ Title = "Abilities", Box = true, BoxBorder = true, Opened = true })
     AbilSection:Toggle({
         Title = "God Mode", Desc = "Prevents all damage",
         Callback = function(v)
-            State.godOn = v
+            S.godOn = v
             if v then
                 local h=getHum(); if h then h.MaxHealth=math.huge; h.Health=math.huge end
-                State.godConn = RunService.Heartbeat:Connect(function()
+                S.godConn = RunService.Heartbeat:Connect(function()
                     local h=getHum(); if h then h.Health=h.MaxHealth end
                 end)
-            else if State.godConn then State.godConn:Disconnect(); State.godConn=nil end end
+            else if S.godConn then S.godConn:Disconnect(); S.godConn=nil end end
         end,
     })
     AbilSection:Space()
     AbilSection:Slider({
         Title = "Fly Speed", Step=5, Value={Min=10,Max=500,Default=50},
-        Callback = function(v) State.flySpeed = v end,
+        Callback = function(v) S.flySpeed = v end,
     })
     AbilSection:Space()
     AbilSection:Toggle({
@@ -765,20 +666,14 @@ do
 end
 
 -- ═══════════════════════════════════════════════════
---  TAB: Misc
+--  TAB 5 : Misc
 -- ═══════════════════════════════════════════════════
 do
-    local MiscTab = ExtraSection:Tab({
-        Title = "Misc",
-        Icon  = "wrench",
-    })
+    local MiscTab = AllSection:Tab({ Title = "Misc", Icon = "wrench" })
 
-    local UtilSection = MiscTab:Section({
-        Title = "Utilities", Box = true, BoxBorder = true, Opened = true,
-    })
-
+    local UtilSection = MiscTab:Section({ Title = "Utilities", Box = true, BoxBorder = true, Opened = true })
     UtilSection:Toggle({
-        Title = "Anti AFK", Desc = "Fires only on idle event, zero performance cost",
+        Title = "Anti AFK", Desc = "Fires on idle event only, zero performance cost",
         Callback = function(v)
             if v then
                 player.Idled:Connect(function()
@@ -806,10 +701,7 @@ do
 
     MiscTab:Space()
 
-    local ServerSection = MiscTab:Section({
-        Title = "Server", Box = true, BoxBorder = true, Opened = true,
-    })
-
+    local ServerSection = MiscTab:Section({ Title = "Server", Box = true, BoxBorder = true, Opened = true })
     local ServerGroup = ServerSection:Group({})
     ServerGroup:Button({
         Title = "Rejoin", Icon = "refresh-cw", Justify = "Center",
@@ -829,10 +721,7 @@ do
 
     MiscTab:Space()
 
-    local TpSection = MiscTab:Section({
-        Title = "Teleport to Player", Box = true, BoxBorder = true, Opened = true,
-    })
-
+    local TpSection = MiscTab:Section({ Title = "Teleport to Player", Box = true, BoxBorder = true, Opened = true })
     local tpTarget = ""
     local function getPlayerNames()
         local n = {}
@@ -841,15 +730,12 @@ do
         end
         return #n > 0 and n or {"No other players"}
     end
-
     local tpDrop = TpSection:Dropdown({
         Title = "Select Player", Values = getPlayerNames(),
         Value = nil, AllowNone = true,
         Callback = function(v) tpTarget = v or "" end,
     })
-
     TpSection:Space()
-
     local TpGroup = TpSection:Group({})
     TpGroup:Button({
         Title = "Refresh", Icon = "refresh-cw", Justify = "Center",
@@ -863,8 +749,7 @@ do
         Title = "Teleport", Icon = "navigation", Justify = "Center",
         Callback = function()
             if tpTarget == "" or tpTarget == "No other players" then
-                notify("Teleport","Select a player first."); return
-            end
+                notify("Teleport","Select a player first."); return end
             local t = Players:FindFirstChild(tpTarget)
             if not t or not t.Character then notify("Teleport","Player not found."); return end
             local hrp = getHRP(); if not hrp then return end
@@ -875,24 +760,26 @@ do
 end
 
 -- ═══════════════════════════════════════════════════
---  TAB: Settings
+--  TAB 6 : Settings
 -- ═══════════════════════════════════════════════════
 do
-    local SettingsTab = ExtraSection:Tab({
-        Title = "Settings",
-        Icon  = "settings",
-    })
+    local SettingsTab = AllSection:Tab({ Title = "Settings", Icon = "settings" })
 
-    local UISection = SettingsTab:Section({
-        Title = "Interface", Box = true, BoxBorder = true, Opened = true,
-    })
-
+    local UISection = SettingsTab:Section({ Title = "Interface", Box = true, BoxBorder = true, Opened = true })
     UISection:Keybind({
         Title = "Toggle UI", Desc = "Key to show / hide the window",
         Value = "RightControl",
         Callback = function(v)
             pcall(function() Window:SetToggleKey(Enum.KeyCode[v]) end)
         end,
+    })
+
+    SettingsTab:Space()
+
+    local CredSection = SettingsTab:Section({ Title = "Credits", Box = true, BoxBorder = true, Opened = true })
+    CredSection:Section({
+        Title = "Made by AnsonDev\ndiscord.gg/FBaqTQqutg",
+        TextSize = 14, TextTransparency = 0.3,
     })
 
     SettingsTab:Space()
@@ -912,16 +799,16 @@ end
 -- ═══════════════════════════════════════════════════
 player.CharacterAdded:Connect(function(char)
     task.wait(1)
-    local hum = char:WaitForChild("Humanoid", 5); if not hum then return end
-    if State.walkEnabled   then hum.WalkSpeed = State.walkVal end
-    if State.jumpEnabled   then hum.UseJumpPower=true; hum.JumpPower=State.jumpVal end
-    if State.flyEnabled    then startFly()    end
-    if State.noclipEnabled then startNoclip() end
-    if State.boostEnabled  then startBoost()  end
-    if State.godOn then
+    local hum = char:WaitForChild("Humanoid",5); if not hum then return end
+    if S.walkEnabled   then hum.WalkSpeed = S.walkVal end
+    if S.jumpEnabled   then hum.UseJumpPower=true; hum.JumpPower=S.jumpVal end
+    if S.flyEnabled    then startFly()    end
+    if S.noclipEnabled then startNoclip() end
+    if S.boostEnabled  then startBoost()  end
+    if S.godOn then
         hum.MaxHealth=math.huge; hum.Health=math.huge
-        if State.godConn then State.godConn:Disconnect() end
-        State.godConn = RunService.Heartbeat:Connect(function()
+        if S.godConn then S.godConn:Disconnect() end
+        S.godConn = RunService.Heartbeat:Connect(function()
             local h=getHum(); if h then h.Health=h.MaxHealth end
         end)
     end
