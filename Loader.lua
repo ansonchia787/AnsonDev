@@ -13,11 +13,41 @@ print("Current PlaceId:", GameId)
 
 local URL = Games[GameId]
 
+-- 没有脚本 → 显示 UI
 if not URL then
-    warn("No script for this game")
+    local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+
+    local Window = Rayfield:CreateWindow({
+        Name = "Script Loader",
+        LoadingTitle = "Checking Game...",
+        LoadingSubtitle = "by You",
+        ConfigurationSaving = {
+            Enabled = false
+        },
+        Discord = {
+            Enabled = false
+        },
+        KeySystem = false,
+    })
+
+    local Tab = Window:CreateTab("Status", 4483362458)
+
+    Tab:CreateParagraph({
+        Title = "Unsupported Game",
+        Content = "This game is not supported yet.\nPlaceId: " .. tostring(GameId)
+    })
+
+    Tab:CreateButton({
+        Name = "Copy PlaceId",
+        Callback = function()
+            setclipboard(tostring(GameId))
+        end,
+    })
+
     return
 end
 
+-- 有脚本 → 正常加载
 local success, err = pcall(function()
     loadstring(HttpGet(URL))()
 end)
